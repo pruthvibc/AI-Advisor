@@ -3,19 +3,40 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, Send, BrainCircuit, Square, Mic, MicOff,
-  Video, VideoOff, Trophy, XCircle, Loader2, Play, LogOut
+  Send, BrainCircuit, Square, Mic, MicOff,
+  Video, VideoOff, Trophy, XCircle, Loader2, Play, LogOut,
+  LayoutDashboard, FileText, Target, Briefcase, Zap,
+  UserCircle, GraduationCap
 } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 
+// ── Sidebar Item ──────────────────────────────────────────────────────────────
+function SidebarItem({ icon, label, href = '#', active = false }: any) {
+  return (
+    <Link href={href}
+      className={`flex items-center gap-3.5 px-4 py-3 rounded-xl text-[12.5px] font-semibold transition-all duration-200
+        ${active
+          ? 'bg-white/10 text-white shadow-sm'
+          : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'}`}>
+      <span className={`transition-colors ${active ? 'text-indigo-400' : 'text-slate-600'}`}>{icon}</span>
+      {label}
+      {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400" />}
+    </Link>
+  );
+}
+
 export default function MockInterviewStudio() {
-  const searchParams  = useSearchParams();
-  const topicFromUrl  = searchParams.get('topic') || 'Software Engineering';
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const topicFromUrl = searchParams.get('topic') || 'Software Engineering';
   const syllabusFromUrl = searchParams.get('syllabus')
     ? searchParams.get('syllabus')!.split(',').map(s => s.trim()).filter(Boolean)
     : [];
 
+  // ── Core state ────────────────────────────────────────────────────────────
   const [input, setInput]           = useState('');
   const [isLoading, setIsLoading]   = useState(false);
   const [messages, setMessages]     = useState<{ role: string; text: string }[]>([]);
@@ -23,25 +44,32 @@ export default function MockInterviewStudio() {
   const qNumRef                     = useRef(1);
   const [examResult, setExamResult] = useState<{ passed: boolean; text: string } | null>(null);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-
-  const [sessionStarted, setSessionStarted] = useState(false);
+  const [sessionStarted, setSessionStarted]   = useState(false);
   const isCompleteRef = useRef(false);
 
-  // Voice states
+  // ── Voice state ───────────────────────────────────────────────────────────
+  // micOn = user WANTS the mic active (toggle state)
+  // isListening = speech recognition is currently running
+  // isSpeaking  = TTS is playing
+  const [micOn, setMicOn]           = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking]   = useState(false);
   const [ttsReady, setTtsReady]       = useState(false);
   const recognitionRef                = useRef<any>(null);
 
-  // Camera / recording
+  // Accumulated transcript from current mic session
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+
+  // ── Camera / recording ────────────────────────────────────────────────────
   const [isCameraOn, setIsCameraOn]   = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const videoRef          = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef  = useRef<MediaRecorder | null>(null);
-  const chunksRef         = useRef<Blob[]>([]);
+  const videoRef         = useRef<HTMLVideoElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef        = useRef<Blob[]>([]);
 
-  // ── NEW: read user_id from sessionStorage ────────────────────────────
-  const [userId, setUserId] = useState<string | null>(null);
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const [userId,        setUserId]        = useState<string | null>(null);
+  const [candidateName, setCandidateName] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem('ai_advisor_user');
@@ -49,6 +77,7 @@ export default function MockInterviewStudio() {
       try {
         const parsed = JSON.parse(saved);
         setUserId(parsed.id || null);
+        setCandidateName(parsed.name || null);
       } catch {
         setUserId(null);
       }
@@ -57,7 +86,7 @@ export default function MockInterviewStudio() {
 
   const TOTAL_QUESTIONS = 10;
 
-  // ── CONFETTI ──────────────────────────────────────────────────────────
+  // ── Confetti ──────────────────────────────────────────────────────────────
   const triggerConfetti = () => {
     const duration     = 5 * 1000;
     const animationEnd = Date.now() + duration;
@@ -72,7 +101,7 @@ export default function MockInterviewStudio() {
     }, 250);
   };
 
-  // ── TTS UNLOCK ────────────────────────────────────────────────────────
+  // ── TTS unlock (needs a user gesture) ────────────────────────────────────
   const unlockTTS = useCallback(() => {
     if (ttsReady) return;
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
@@ -84,35 +113,36 @@ export default function MockInterviewStudio() {
     return () => document.removeEventListener('click', unlockTTS);
   }, [unlockTTS]);
 
-  // ── EXIT HANDLER ──────────────────────────────────────────────────────
-  const handleExit = () => {
-    isCompleteRef.current = true;
-
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    try { recognitionRef.current?.abort?.(); } catch (_) {}
-    try { recognitionRef.current?.stop?.();  } catch (_) {}
+  // ── Cleanup on exit ───────────────────────────────────────────────────────
+  const stopRecognition = useCallback(() => {
+    try { recognitionRef.current?.abort(); } catch (_) {}
+    try { recognitionRef.current?.stop();  } catch (_) {}
     recognitionRef.current = null;
+    setIsListening(false);
+  }, []);
 
+  const handleExit = useCallback(() => {
+    isCompleteRef.current = true;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopRecognition();
+    setMicOn(false);
     try {
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
     } catch (_) {}
-
     try {
       (videoRef.current?.srcObject as MediaStream)?.getTracks().forEach(t => t.stop());
     } catch (_) {}
-
     setTimeout(() => window.history.back(), 150);
-  };
+  }, [stopRecognition]);
 
-  // ── SUBMIT ANSWER ─────────────────────────────────────────────────────
-  const submitAnswerRef = useRef<(text: string) => void>(() => {});
-
-  // CHANGED: include user_id in every chat request body
+  // ── Submit answer (text or voice) — only triggered by explicit send ───────
   const submitAnswer = useCallback(async (answerText: string) => {
     if (!answerText.trim() || isLoading || isCompleteRef.current) return;
 
-    try { recognitionRef.current?.stop(); } catch (_) {}
-    setIsListening(false);
+    // Stop mic before sending
+    stopRecognition();
+    setMicOn(false);
+    setVoiceTranscript('');
 
     const userText = answerText.trim();
     setInput('');
@@ -130,11 +160,11 @@ export default function MockInterviewStudio() {
       const response = await fetch('http://127.0.0.1:8000/api/chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
+        body: JSON.stringify({
           messages:      apiHistory,
           topic_context: topicFromUrl,
           syllabus:      syllabusFromUrl,
-          user_id:       userId,            // ← NEW
+          user_id:       userId,
         }),
       });
 
@@ -154,60 +184,133 @@ export default function MockInterviewStudio() {
         speak(data.text, false);
         if (passed) triggerConfetti();
       } else {
-        speak(data.text, true);
+        // Speak AI question — mic stays OFF until user manually enables it
+        speak(data.text, false);
       }
     } catch (error) {
       console.error('Chat Error:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, topicFromUrl, syllabusFromUrl, messages, userId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, topicFromUrl, syllabusFromUrl, messages, userId, stopRecognition]);
 
-  useEffect(() => { submitAnswerRef.current = submitAnswer; }, [submitAnswer]);
-
-  // ── SPEECH RECOGNITION ────────────────────────────────────────────────
-  const startListeningInternal = useCallback(() => {
+  // ── Speech recognition ────────────────────────────────────────────────────
+  // Starts a CONTINUOUS recognition session and accumulates interim text
+  // into the input field. Does NOT auto-send. User must click Send.
+  const startRecognitionSession = useCallback(() => {
     if (isCompleteRef.current) return;
 
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
-
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (_) {}
+    if (!SR) {
+      alert('Speech recognition not supported. Please use Chrome or Edge.');
+      setMicOn(false);
+      return;
     }
 
-    const recognition      = new SR();
-    recognitionRef.current = recognition;
-    recognition.continuous     = false;
-    recognition.interimResults = false;
+    // Kill any existing session first
+    stopRecognition();
 
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend   = () => setIsListening(false);
+    const recognition = new SR();
+    recognitionRef.current = recognition;
+
+    recognition.continuous     = true;   // keep listening until stopped
+    recognition.interimResults = true;   // show live partial results
+    recognition.lang           = 'en-IN';
+    recognition.maxAlternatives = 1;
+
+    let finalText = '';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      finalText = input; // preserve whatever was already typed
+    };
 
     recognition.onresult = (event: any) => {
       if (isCompleteRef.current) return;
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
-      setTimeout(() => {
-        if (!isCompleteRef.current) submitAnswerRef.current(transcript);
-      }, 800);
+
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += (finalText ? ' ' : '') + transcript.trim();
+        } else {
+          interim = transcript;
+        }
+      }
+
+      // Update input with committed text + live interim
+      const combined = finalText + (interim ? (finalText ? ' ' : '') + interim : '');
+      setInput(combined);
+      setVoiceTranscript(combined);
     };
 
     recognition.onerror = (event: any) => {
+      console.warn('Speech recognition error:', event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        alert('Microphone access denied. Please allow microphone access in your browser settings.');
+        setMicOn(false);
+        setIsListening(false);
+        return;
+      }
+      // For network / no-speech errors, restart if mic is still toggled on
       setIsListening(false);
-      if (event.error === 'no-speech' && !isCompleteRef.current) {
-        setTimeout(() => startListeningInternal(), 500);
+      if (micOn && !isCompleteRef.current && event.error !== 'aborted') {
+        setTimeout(() => {
+          if (micOn && !isCompleteRef.current) startRecognitionSession();
+        }, 500);
       }
     };
 
-    try { recognition.start(); } catch (_) {}
-  }, []);
+    recognition.onend = () => {
+      setIsListening(false);
+      // If mic toggle is still ON and session ended naturally, restart
+      if (micOn && !isCompleteRef.current) {
+        setTimeout(() => {
+          if (!isCompleteRef.current) startRecognitionSession();
+        }, 300);
+      }
+    };
 
-  // ── SPEAK ─────────────────────────────────────────────────────────────
-  const startListeningRef = useRef(startListeningInternal);
-  useEffect(() => { startListeningRef.current = startListeningInternal; }, [startListeningInternal]);
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Failed to start recognition:', e);
+      setMicOn(false);
+      setIsListening(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopRecognition, input]);
 
-  const speak = useCallback((text: string, autoListen = true) => {
+  // ── React to micOn toggle ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (micOn && sessionStarted && !examResult && !isSpeaking) {
+      startRecognitionSession();
+    } else if (!micOn) {
+      stopRecognition();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micOn]);
+
+  // Stop mic automatically when AI starts speaking
+  useEffect(() => {
+    if (isSpeaking && micOn) {
+      stopRecognition();
+      setIsListening(false);
+      // Don't change micOn toggle state — let user decide to re-enable
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSpeaking]);
+
+  // ── Toggle mic button handler ─────────────────────────────────────────────
+  const toggleMic = () => {
+    if (!sessionStarted || !!examResult) return;
+    if (isSpeaking) return; // Can't start mic while AI is speaking
+    setMicOn(prev => !prev);
+  };
+
+  // ── TTS speak ─────────────────────────────────────────────────────────────
+  const speak = useCallback((text: string, _autoListen = false) => {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
 
@@ -217,33 +320,27 @@ export default function MockInterviewStudio() {
 
     utterance.onend = () => {
       setIsSpeaking(false);
-      if (isCompleteRef.current) return;
-      if (autoListen) setTimeout(() => startListeningRef.current(), 350);
+      // Never auto-start mic — user controls it manually
     };
 
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+    };
+
     window.speechSynthesis.speak(utterance);
   }, []);
 
-  const toggleMic = () => {
-    if (isListening) {
-      try { recognitionRef.current?.stop(); } catch (_) {}
-      setIsListening(false);
-    } else {
-      startListeningInternal();
-    }
-  };
-
+  // ── Camera ────────────────────────────────────────────────────────────────
   const toggleCamera = async () => {
     if (isCameraOn) {
       (videoRef.current?.srcObject as MediaStream)?.getTracks().forEach(t => t.stop());
       setIsCameraOn(false);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         if (videoRef.current) videoRef.current.srcObject = stream;
         setIsCameraOn(true);
-      } catch { alert('Please enable camera/mic access.'); }
+      } catch { alert('Please enable camera access in your browser.'); }
     }
   };
 
@@ -265,7 +362,7 @@ export default function MockInterviewStudio() {
     mediaRecorderRef.current = recorder;
   };
 
-  // CHANGED: include user_id in the initial chat request too
+  // ── Start assessment ──────────────────────────────────────────────────────
   const startAssessment = async () => {
     setSessionStarted(true);
     setIsLoading(true);
@@ -275,16 +372,16 @@ export default function MockInterviewStudio() {
       const response = await fetch('http://127.0.0.1:8000/api/chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
+        body: JSON.stringify({
           messages:      [],
           topic_context: topicFromUrl,
           syllabus:      syllabusFromUrl,
-          user_id:       userId,            // ← NEW
+          user_id:       userId,
         }),
       });
       const data = await response.json();
       setMessages([{ role: 'ai', text: data.text }]);
-      speak(data.text, true);
+      speak(data.text, false);
     } catch (err) {
       console.error('Intro failed:', err);
     } finally {
@@ -292,315 +389,417 @@ export default function MockInterviewStudio() {
     }
   };
 
+  // ── Form submit ───────────────────────────────────────────────────────────
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { recognitionRef.current?.stop(); } catch (_) {}
+    if (!input.trim()) return;
     await submitAnswer(input);
   };
 
+  // ── Derived state ─────────────────────────────────────────────────────────
   const inputDisabled = !sessionStarted || isLoading || !!examResult || isSpeaking;
-  const micDisabled   = !sessionStarted || isSpeaking || isLoading || !!examResult;
+  const micDisabled   = !sessionStarted || isLoading || !!examResult || isSpeaking;
   const sendDisabled  = !input.trim() || isLoading || isSpeaking || !sessionStarted || !!examResult;
 
   const displayQ = Math.min(qNum, TOTAL_QUESTIONS);
-  const progress = (displayQ / TOTAL_QUESTIONS) * 100;
+  const progress  = (displayQ / TOTAL_QUESTIONS) * 100;
 
-  const statusLabel = !sessionStarted     ? 'Waiting to start...'
-    : isSpeaking                          ? '🔊 Speaking — listen carefully...'
-    : isListening                         ? '🎙️ Listening — answer now...'
-    : isLoading                           ? 'Thinking...'
-    :                                       'Proctored certification in progress.';
+  const statusLabel = !sessionStarted ? 'Waiting to start…'
+    : isSpeaking                      ? '🔊 Speaking — listen carefully…'
+    : isListening                     ? '🎙️ Mic active — speak your answer, then click Send'
+    : micOn && !isListening           ? '🎙️ Mic on — starting…'
+    : isLoading                       ? 'Thinking…'
+    :                                   'Type or enable mic, then click Send.';
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex h-screen bg-[#F0F2F5] text-gray-900 font-sans overflow-hidden">
 
-        {/* HEADER */}
-        <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between shadow-sm z-10">
-          <div className="flex items-center gap-6">
-            <button onClick={() => window.history.back()} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-              <ArrowLeft className="w-5 h-5 text-slate-600" />
-            </button>
+      {/* ═══════ DARK NAVY SIDEBAR ═══════ */}
+      <aside className="w-[280px] bg-[#0B1628] flex flex-col shrink-0">
+        <div className="px-7 pt-8 pb-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold">Certification Studio</h1>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">{topicFromUrl}</p>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
-                  {qNum > TOTAL_QUESTIONS ? 'Evaluating...' : `Question ${displayQ} / ${TOTAL_QUESTIONS}`}
-                </span>
-                <div className="w-48 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ type: 'spring', stiffness: 80, damping: 20 }}
-                    className="h-full bg-indigo-600 shadow-[0_0_10px_rgba(79,70,229,0.4)]"
-                  />
+              <h1 className="text-[17px] font-extrabold text-white tracking-tight leading-none">AI Advisor</h1>
+              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-[0.2em] mt-0.5">Version 2.4 Live</p>
+            </div>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-4 space-y-1">
+          <p className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.25em] px-4 mb-3">Main Menu</p>
+          <SidebarItem href="/"                    icon={<LayoutDashboard className="w-4 h-4" />} label="Dashboard" />
+          <SidebarItem href="/mock-interview"      icon={<Mic className="w-4 h-4" />}            label="Mock Interview" active />
+          <SidebarItem href="/resume-evolution"    icon={<FileText className="w-4 h-4" />}       label="Resume Evolution" />
+          <SidebarItem href="/skill-gap-analysis"  icon={<Target className="w-4 h-4" />}         label="Skill Gap Analysis" />
+          <SidebarItem href="/job-recommendations" icon={<Briefcase className="w-4 h-4" />}      label="Job Recommendations" />
+
+          <p className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.25em] px-4 mb-3 mt-8">Tools</p>
+          <SidebarItem href="/self-intro"     icon={<UserCircle className="w-4 h-4" />}    label="Self Introduction" />
+          <SidebarItem href="/higher-studies" icon={<GraduationCap className="w-4 h-4" />} label="Higher Studies" />
+        </nav>
+
+        <div className="px-4 pb-6 space-y-2">
+          {candidateName && (
+            <div className="mx-2 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-xs font-extrabold">
+                  {candidateName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[12px] font-bold text-white truncate">{candidateName}</p>
+                  <p className="text-[9px] text-slate-500 font-medium">Career Mode</p>
                 </div>
               </div>
             </div>
+          )}
+          <button
+            onClick={() => { sessionStorage.removeItem('ai_advisor_user'); router.replace('/login'); }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[12px] font-bold text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200"
+          >
+            <LogOut className="w-4 h-4" /> Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* ═══════ MAIN STUDIO ═══════ */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* ── HEADER ── */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-8 py-4 flex items-center justify-between z-10 shrink-0">
+          <div className="flex items-center gap-5">
+            <div>
+              <h2 className="text-[18px] font-extrabold text-[#0B1628] tracking-tight">Certification Studio</h2>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5">{topicFromUrl}</p>
+            </div>
+            <div className="flex items-center gap-3 pl-4 border-l border-gray-100">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
+                {qNum > TOTAL_QUESTIONS ? 'Evaluating…' : `Question ${displayQ} / ${TOTAL_QUESTIONS}`}
+              </span>
+              <div className="w-40 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progress}%` }}
+                  transition={{ type: 'spring', stiffness: 80, damping: 20 }}
+                  className="h-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                />
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
+
+          <div className="flex items-center gap-3">
             {!isRecording ? (
-              <button onClick={startRecording} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-100 hover:scale-105 transition-all uppercase tracking-widest">
+              <button onClick={startRecording}
+                className="px-4 py-2 bg-[#0B1628] text-white rounded-xl text-[11px] font-extrabold hover:bg-[#132042] transition-all">
                 Record Session
               </button>
             ) : (
-              <button onClick={() => { mediaRecorderRef.current?.stop(); setIsRecording(false); }} className="px-5 py-2.5 bg-red-600 text-white rounded-xl text-xs font-black animate-pulse shadow-lg flex items-center gap-2">
-                <Square size={12} fill="white" /> Stop & Save
+              <button onClick={() => { mediaRecorderRef.current?.stop(); setIsRecording(false); }}
+                className="px-4 py-2 bg-red-600 text-white rounded-xl text-[11px] font-extrabold animate-pulse flex items-center gap-2">
+                <Square size={11} fill="white" /> Stop & Save
               </button>
             )}
-            <div className="px-4 py-1.5 bg-red-50 text-red-600 rounded-full text-[10px] font-black border border-red-100 uppercase tracking-widest flex items-center gap-2">
-              <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" /> LIVE PROCTORING
+            <div className="px-3 py-1.5 bg-red-50 text-red-600 rounded-full text-[9px] font-extrabold border border-red-100 uppercase tracking-widest flex items-center gap-2">
+              <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" /> LIVE
             </div>
             <button
               onClick={() => sessionStarted && !examResult ? setShowExitConfirm(true) : handleExit()}
-              className="px-5 py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-black hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all uppercase tracking-widest flex items-center gap-2"
+              className="px-4 py-2 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-[11px] font-extrabold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all flex items-center gap-2"
             >
-              <LogOut size={14} /> Exit
+              <LogOut size={13} /> Exit
             </button>
           </div>
         </header>
 
-        {/* MAIN */}
-        <div className="p-8 flex-1 flex flex-col gap-8 overflow-hidden relative">
+        {/* ── STUDIO BODY ── */}
+        <div className="flex-1 flex gap-0 overflow-hidden">
 
-          {/* VIDEO / AI PANEL */}
-          <div className="flex-1 bg-slate-900 rounded-[2.5rem] overflow-hidden relative shadow-2xl border border-slate-800">
+          {/* CENTER: Video + Input */}
+          <div className="flex-1 flex flex-col p-6 gap-5 overflow-hidden">
 
-            {/* START OVERLAY */}
-            <AnimatePresence>
-              {!sessionStarted && (
-                <motion.div
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-20 bg-slate-900/70 backdrop-blur-md flex items-center justify-center"
-                >
+            {/* VIDEO / AI PANEL */}
+            <div className="flex-1 bg-slate-900 rounded-2xl overflow-hidden relative shadow-2xl border border-slate-800 min-h-0">
+
+              {/* START OVERLAY */}
+              <AnimatePresence>
+                {!sessionStarted && (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                    className="text-center p-12 bg-white rounded-[3rem] shadow-2xl max-w-md"
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="absolute inset-0 z-20 bg-slate-900/70 backdrop-blur-md flex items-center justify-center"
                   >
-                    <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <Play className="w-10 h-10 text-indigo-600 ml-1" />
-                    </div>
-                    <h2 className="text-2xl font-black text-slate-800 mb-4">Ready to Begin?</h2>
-                    <p className="text-slate-500 text-sm mb-8">
-                      This proctored assessment contains {TOTAL_QUESTIONS} technical questions on{' '}
-                      <span className="font-bold text-indigo-600">{topicFromUrl}</span>.
-                      Ensure your microphone is enabled and clear.
-                    </p>
-                    <button
-                      onClick={startAssessment}
-                      className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all uppercase tracking-widest text-xs"
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                      className="text-center p-12 bg-white rounded-3xl shadow-2xl max-w-md"
                     >
-                      Start Technical Assessment
-                    </button>
+                      <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-indigo-100">
+                        <Play className="w-10 h-10 text-indigo-600 ml-1" />
+                      </div>
+                      <h2 className="text-2xl font-extrabold text-[#0B1628] mb-3">Ready to Begin?</h2>
+                      <p className="text-slate-500 text-[13px] mb-8 leading-relaxed font-medium">
+                        This proctored assessment contains <strong>{TOTAL_QUESTIONS}</strong> technical questions on{' '}
+                        <span className="font-extrabold text-indigo-600">{topicFromUrl}</span>.
+                        Enable your microphone when prompted.
+                      </p>
+                      <button
+                        onClick={startAssessment}
+                        className="w-full bg-[#0B1628] text-white py-4 rounded-xl font-extrabold text-[13px] hover:bg-[#132042] transition-all"
+                      >
+                        Start Technical Assessment
+                      </button>
+                    </motion.div>
                   </motion.div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* AI AVATAR */}
-            {!isCameraOn && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-                <div className={`w-24 h-24 rounded-full mb-6 flex items-center justify-center transition-all duration-500 ${
-                  isSpeaking   ? 'bg-indigo-400 animate-pulse scale-110 shadow-2xl shadow-indigo-500/50'
-                  : isListening ? 'bg-emerald-500 animate-pulse scale-105 shadow-2xl shadow-emerald-500/50'
-                  : isLoading   ? 'bg-indigo-600 animate-pulse'
-                  :               'bg-indigo-600 shadow-2xl shadow-indigo-500/30'
-                }`}>
-                  <BrainCircuit className="w-12 h-12 text-white" />
-                </div>
-                <h2 className="text-white font-black text-2xl tracking-tight">AI Technical Examiner</h2>
-                <p className="text-slate-400 text-sm mt-2 max-w-xs font-medium">{statusLabel}</p>
-
-                {sessionStarted && !examResult && (
-                  <div className="mt-6 flex items-center gap-2">
-                    {Array.from({ length: TOTAL_QUESTIONS }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`w-2 h-2 rounded-full transition-all duration-500 ${
-                          i < displayQ - 1
-                            ? 'bg-indigo-400'
-                            : i === displayQ - 1
-                            ? 'bg-emerald-400 scale-125 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
-                            : 'bg-slate-700'
-                        }`}
-                      />
-                    ))}
-                  </div>
                 )}
+              </AnimatePresence>
+
+              {/* AI AVATAR */}
+              {!isCameraOn && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+                  <div className={`w-24 h-24 rounded-full mb-6 flex items-center justify-center transition-all duration-500 ${
+                    isSpeaking    ? 'bg-indigo-400 animate-pulse scale-110 shadow-2xl shadow-indigo-500/50'
+                    : isListening ? 'bg-emerald-500 animate-pulse scale-105 shadow-2xl shadow-emerald-500/50'
+                    : isLoading   ? 'bg-indigo-600 animate-pulse'
+                    :               'bg-indigo-600 shadow-2xl shadow-indigo-500/30'
+                  }`}>
+                    <BrainCircuit className="w-12 h-12 text-white" />
+                  </div>
+                  <h2 className="text-white font-extrabold text-2xl tracking-tight">AI Technical Examiner</h2>
+                  <p className="text-slate-400 text-[13px] mt-2 max-w-xs font-medium">{statusLabel}</p>
+
+                  {sessionStarted && !examResult && (
+                    <div className="mt-6 flex items-center gap-2">
+                      {Array.from({ length: TOTAL_QUESTIONS }).map((_, i) => (
+                        <div key={i}
+                          className={`w-2 h-2 rounded-full transition-all duration-500 ${
+                            i < displayQ - 1
+                              ? 'bg-indigo-400'
+                              : i === displayQ - 1
+                              ? 'bg-emerald-400 scale-125 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                              : 'bg-slate-700'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <video
+                ref={videoRef} autoPlay playsInline muted
+                className={`w-full h-full object-cover transition-opacity duration-700 ${isCameraOn ? 'opacity-100' : 'opacity-0'}`}
+              />
+
+              {/* Camera toggle */}
+              <div className="absolute bottom-5 left-5">
+                <button onClick={toggleCamera}
+                  className="p-4 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 hover:bg-white/20 transition-all">
+                  {isCameraOn ? <Video className="text-white w-5 h-5" /> : <VideoOff className="text-red-400 w-5 h-5" />}
+                </button>
               </div>
-            )}
 
-            <video
-              ref={videoRef} autoPlay playsInline muted
-              className={`w-full h-full object-cover transition-opacity duration-700 ${isCameraOn ? 'opacity-100' : 'opacity-0'}`}
-            />
-
-            <div className="absolute bottom-8 left-8">
-              <button onClick={toggleCamera} className="p-5 bg-white/10 backdrop-blur-2xl rounded-[1.5rem] border border-white/20 hover:bg-white/20 transition-all shadow-2xl group">
-                {isCameraOn
-                  ? <Video className="text-white group-hover:scale-110 transition-transform" />
-                  : <VideoOff className="text-red-400" />}
-              </button>
+              {/* Speaking / Listening badge */}
+              {(isSpeaking || isListening) && (
+                <div className={`absolute top-5 right-5 px-4 py-2 rounded-full text-[10px] font-extrabold uppercase tracking-widest flex items-center gap-2 ${
+                  isSpeaking ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'
+                }`}>
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  {isSpeaking ? 'AI Speaking' : 'Mic Active'}
+                </div>
+              )}
             </div>
 
-            {(isSpeaking || isListening) && (
-              <div className={`absolute top-6 right-6 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
-                isSpeaking ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'
-              }`}>
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                {isSpeaking ? 'AI Speaking' : 'Your Turn'}
-              </div>
-            )}
-          </div>
+            {/* ── INPUT BAR ── */}
+            <div className="shrink-0">
+              <form onSubmit={handleSendMessage} className="flex gap-3">
 
-          {/* INPUT BAR */}
-          <div className="pb-4">
-            <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-4">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  disabled={inputDisabled}
-                  placeholder={
-                    !sessionStarted ? 'Click Start to begin...'
-                    : isSpeaking    ? 'AI is speaking...'
-                    : isListening   ? 'Listening — speak your answer...'
-                    : examResult    ? 'Assessment complete.'
-                    :                 'Speak or type your technical answer...'
-                  }
-                  className="w-full bg-white border border-slate-200 rounded-[1.8rem] pl-8 pr-16 py-6 shadow-2xl focus:ring-4 focus:ring-indigo-500/10 focus:outline-none transition-all placeholder:text-slate-400 font-medium disabled:bg-slate-50 disabled:text-slate-400"
-                />
+                {/* Mic toggle button */}
                 <button
                   type="button"
                   onClick={toggleMic}
                   disabled={micDisabled}
-                  className={`absolute right-5 top-1/2 -translate-y-1/2 p-3 rounded-2xl transition-all ${
-                    isListening   ? 'bg-red-500 text-white animate-pulse shadow-lg'
-                    : micDisabled ? 'text-slate-200 cursor-not-allowed'
-                    :               'text-slate-300 hover:text-indigo-600 hover:bg-indigo-50'
-                  }`}
+                  title={micOn ? 'Turn off microphone' : 'Turn on microphone'}
+                  className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-200 border-2 shadow-sm
+                    ${micDisabled
+                      ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
+                      : micOn
+                        ? isListening
+                          ? 'bg-emerald-500 border-emerald-400 text-white shadow-emerald-200 animate-pulse'
+                          : 'bg-emerald-600 border-emerald-500 text-white shadow-emerald-200'
+                        : 'bg-white border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-500'
+                    }`}
                 >
-                  {isListening ? <MicOff size={22} /> : <Mic size={22} />}
+                  {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
                 </button>
-              </div>
-              <button
-                type="submit" disabled={sendDisabled}
-                className="p-6 bg-indigo-600 text-white rounded-[1.8rem] shadow-2xl hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
-              >
-                {isLoading ? <Loader2 className="animate-spin w-6 h-6" /> : <Send size={24} />}
-              </button>
-            </form>
-          </div>
 
-          {/* MODALS */}
-          <AnimatePresence>
-            {showExitConfirm && (
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-8 z-50"
-              >
-                <motion.div
-                  initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
-                  className="bg-white rounded-[3rem] p-12 max-w-md w-full text-center shadow-2xl"
-                >
-                  <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-100">
-                    <LogOut className="w-9 h-9 text-red-500" />
-                  </div>
-                  <h2 className="text-2xl font-black text-slate-800 mb-3">Exit Assessment?</h2>
-                  <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-                    Your progress will be lost and the session will end. Are you sure you want to leave?
-                  </p>
-                  <div className="flex flex-col gap-3">
-                    <button onClick={handleExit} className="w-full bg-red-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-red-700 transition-all uppercase tracking-widest text-xs">
-                      Yes, Exit Now
-                    </button>
-                    <button onClick={() => setShowExitConfirm(false)} className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black hover:bg-slate-200 transition-all uppercase tracking-widest text-xs">
-                      Continue Assessment
-                    </button>
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {examResult && (
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8 z-50"
-              >
-                <motion.div
-                  initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
-                  className="bg-white rounded-[3.5rem] p-16 max-w-xl w-full text-center shadow-2xl"
-                >
-                  {examResult.passed ? (
-                    <div className="flex flex-col items-center">
-                      <div className="w-28 h-28 bg-amber-50 rounded-full flex items-center justify-center mb-8 border border-amber-100 shadow-inner">
-                        <Trophy className="w-14 h-14 text-amber-500 drop-shadow-md" />
-                      </div>
-                      <h2 className="text-4xl font-black text-slate-800 mb-3 tracking-tight">Skill Certified!</h2>
-                      <p className="text-slate-500 mb-4 leading-relaxed font-medium italic">"{examResult.text}"</p>
-                      <button onClick={() => window.history.back()} className="w-full bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black shadow-2xl shadow-indigo-100 hover:scale-[1.02] transition-all uppercase tracking-[0.2em] text-xs">
-                        Add Verified Badge to Resume
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <div className="w-28 h-28 bg-red-50 rounded-full flex items-center justify-center mb-8 border border-red-100 shadow-inner">
-                        <XCircle className="w-14 h-14 text-red-500 drop-shadow-md" />
-                      </div>
-                      <h2 className="text-4xl font-black text-slate-800 mb-3 tracking-tight">Unverified Proficiency</h2>
-                      <p className="text-slate-500 mb-4 leading-relaxed font-medium italic">"{examResult.text}"</p>
-                      <button onClick={() => window.location.reload()} className="w-full bg-slate-900 text-white py-5 rounded-[1.5rem] font-black shadow-2xl hover:bg-black transition-all uppercase tracking-[0.2em] text-xs">
-                        Review Roadmap & Retry
-                      </button>
+                {/* Text input */}
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={e => {
+                      setInput(e.target.value);
+                      // If user edits manually while mic is on, keep the text
+                    }}
+                    disabled={inputDisabled}
+                    placeholder={
+                      !sessionStarted     ? 'Click Start to begin…'
+                      : isSpeaking        ? 'AI is speaking…'
+                      : micOn             ? 'Speaking… click Send when done'
+                      : examResult        ? 'Assessment complete.'
+                      :                     'Type your answer or enable the mic above…'
+                    }
+                    className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 text-[13px] font-medium shadow-sm focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400 focus:outline-none transition-all placeholder:text-slate-300 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                  {micOn && isListening && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                      {[0, 0.15, 0.3].map((delay, i) => (
+                        <motion.div key={i}
+                          className="w-1 bg-emerald-500 rounded-full"
+                          animate={{ height: [6, 18, 6] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay }}
+                        />
+                      ))}
                     </div>
                   )}
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                </div>
+
+                {/* Send button */}
+                <button
+                  type="submit"
+                  disabled={sendDisabled}
+                  title="Send answer"
+                  className="shrink-0 w-14 h-14 bg-[#0B1628] text-white rounded-2xl flex items-center justify-center shadow-md hover:bg-[#132042] active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />}
+                </button>
+              </form>
+
+              {/* Mic hint */}
+              {sessionStarted && !examResult && (
+                <p className="text-center text-[10px] text-slate-400 font-medium mt-2">
+                  {micOn
+                    ? isListening
+                      ? '🟢 Mic active — speak freely, then click Send to submit your answer'
+                      : '⏳ Starting microphone…'
+                    : '🎙️ Toggle the mic button to speak, or type directly — click Send to submit'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT: Transcript sidebar */}
+          <aside className="w-[22rem] bg-white border-l border-gray-100 flex flex-col hidden xl:flex shadow-sm shrink-0">
+            <div className="px-6 py-5 border-b border-gray-50 bg-indigo-50/30 flex items-center justify-between shrink-0">
+              <h2 className="font-extrabold text-indigo-900 flex items-center gap-2 uppercase tracking-widest text-[10px]">
+                <BrainCircuit size={15} className="text-indigo-600" /> Exam Transcript
+              </h2>
+              <div className="text-[9px] bg-white px-2.5 py-1.5 rounded-lg border border-indigo-100 font-extrabold text-indigo-600 shadow-sm">
+                {qNum > TOTAL_QUESTIONS ? 'EVAL' : `Q ${displayQ} / ${TOTAL_QUESTIONS}`}
+              </div>
+            </div>
+            <div className="flex-1 p-5 overflow-y-auto space-y-4">
+              {messages.map((msg, i) => (
+                <div key={i} className={`p-4 rounded-2xl text-[12px] leading-relaxed transition-all ${
+                  msg.role === 'ai'
+                    ? 'bg-slate-50 border border-slate-100 text-slate-700'
+                    : 'bg-[#0B1628] text-white ml-6 shadow-md'
+                }`}>
+                  <span className={`text-[9px] font-extrabold uppercase block mb-1.5 tracking-widest ${
+                    msg.role === 'ai' ? 'text-indigo-500' : 'text-indigo-300'
+                  }`}>
+                    {msg.role === 'ai' ? 'AI Examiner' : 'Candidate'}
+                  </span>
+                  {msg.text}
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex gap-1.5 items-center">
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
       </div>
 
-      {/* TRANSCRIPT SIDEBAR */}
-      <aside className="w-[26rem] bg-white border-l border-slate-200 flex-col hidden xl:flex shadow-[-20px_0_40px_rgba(0,0,0,0.02)]">
-        <div className="p-8 border-b bg-indigo-50/20 flex items-center justify-between">
-          <h2 className="font-black text-indigo-900 flex items-center gap-3 uppercase tracking-widest text-[11px]">
-            <BrainCircuit size={18} className="text-indigo-600" /> Exam Transcript
-          </h2>
-          <div className="text-[10px] bg-white px-3 py-1.5 rounded-lg border border-indigo-100 font-black text-indigo-600 shadow-sm">
-            {qNum > TOTAL_QUESTIONS ? 'EVAL' : `Q ${displayQ} / ${TOTAL_QUESTIONS}`}
-          </div>
-        </div>
-        <div className="flex-1 p-8 overflow-y-auto space-y-6 scrollbar-hide">
-          {messages.map((msg, i) => (
-            <div key={i} className={`p-5 rounded-[1.5rem] text-sm leading-relaxed transition-all hover:shadow-md ${
-              msg.role === 'ai'
-                ? 'bg-slate-50 border border-slate-100 text-slate-700'
-                : 'bg-indigo-600 text-white ml-8 shadow-xl shadow-indigo-100'
-            }`}>
-              <span className={`text-[10px] font-black uppercase block mb-2 tracking-widest ${
-                msg.role === 'ai' ? 'text-indigo-600' : 'text-indigo-200'
-              }`}>
-                {msg.role === 'ai' ? 'AI Examiner' : 'Candidate'}
-              </span>
-              {msg.text}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-slate-50 p-5 rounded-[1.5rem] flex gap-1.5 items-center">
-                <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
-                <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+      {/* ── EXIT CONFIRM MODAL ── */}
+      <AnimatePresence>
+        {showExitConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center p-8 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="bg-white rounded-3xl p-12 max-w-md w-full text-center shadow-2xl"
+            >
+              <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-100">
+                <LogOut className="w-9 h-9 text-red-500" />
               </div>
-            </div>
-          )}
-        </div>
-      </aside>
+              <h2 className="text-2xl font-extrabold text-[#0B1628] mb-3">Exit Assessment?</h2>
+              <p className="text-slate-500 text-[13px] mb-8 leading-relaxed font-medium">
+                Your progress will be lost and the session will end. Are you sure you want to leave?
+              </p>
+              <div className="flex flex-col gap-3">
+                <button onClick={handleExit}
+                  className="w-full bg-red-600 text-white py-4 rounded-xl font-extrabold text-[12px] hover:bg-red-700 transition-all uppercase tracking-widest">
+                  Yes, Exit Now
+                </button>
+                <button onClick={() => setShowExitConfirm(false)}
+                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-xl font-extrabold text-[12px] hover:bg-slate-200 transition-all uppercase tracking-widest">
+                  Continue Assessment
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── RESULT MODAL ── */}
+      <AnimatePresence>
+        {examResult && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white rounded-3xl p-16 max-w-xl w-full text-center shadow-2xl"
+            >
+              {examResult.passed ? (
+                <div className="flex flex-col items-center">
+                  <div className="w-28 h-28 bg-amber-50 rounded-full flex items-center justify-center mb-8 border border-amber-100">
+                    <Trophy className="w-14 h-14 text-amber-500" />
+                  </div>
+                  <h2 className="text-4xl font-extrabold text-[#0B1628] mb-3 tracking-tight">Skill Certified!</h2>
+                  <p className="text-slate-500 mb-6 leading-relaxed font-medium italic text-[13px]">"{examResult.text}"</p>
+                  <button onClick={() => window.history.back()}
+                    className="w-full bg-[#0B1628] text-white py-4 rounded-xl font-extrabold text-[13px] hover:bg-[#132042] transition-all uppercase tracking-widest">
+                    Add Verified Badge to Resume
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <div className="w-28 h-28 bg-red-50 rounded-full flex items-center justify-center mb-8 border border-red-100">
+                    <XCircle className="w-14 h-14 text-red-500" />
+                  </div>
+                  <h2 className="text-4xl font-extrabold text-[#0B1628] mb-3 tracking-tight">Unverified Proficiency</h2>
+                  <p className="text-slate-500 mb-6 leading-relaxed font-medium italic text-[13px]">"{examResult.text}"</p>
+                  <button onClick={() => window.location.reload()}
+                    className="w-full bg-[#0B1628] text-white py-4 rounded-xl font-extrabold text-[13px] hover:bg-[#132042] transition-all uppercase tracking-widest">
+                    Review Roadmap & Retry
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -711,7 +711,7 @@ async def generate_resume_pdf(request: Request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8b. GENERATE RESUME AS WORD (.docx)  ← NEW
+# 8b. GENERATE RESUME AS WORD (.docx)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/api/generate-resume-word")
@@ -805,6 +805,7 @@ async def generate_resume_word(request: Request):
         if data.get('experience'):
             add_section_heading(doc, 'Work Experience')
             for exp in data['experience']:
+                # Job title
                 title_p = doc.add_paragraph()
                 title_p.paragraph_format.space_before = Pt(6)
                 title_p.paragraph_format.space_after  = Pt(1)
@@ -812,11 +813,13 @@ async def generate_resume_word(request: Request):
                 t_run.bold = True
                 t_run.font.size = Pt(11)
                 t_run.font.color.rgb = RGBColor(0x1E, 0x1B, 0x4B)
+                # Company | Duration
                 co_p = doc.add_paragraph()
                 co_p.paragraph_format.space_after = Pt(3)
                 co_run = co_p.add_run(f"{safe(exp.get('company'))}  |  {safe(exp.get('duration'))}")
                 co_run.font.size = Pt(9.5)
                 co_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+                # Bullets
                 for b in (exp.get('bullets') or []):
                     bp = doc.add_paragraph(style='List Bullet')
                     bp.paragraph_format.space_after = Pt(2)
@@ -884,7 +887,6 @@ async def generate_resume_word(request: Request):
     except Exception as e:
         import traceback
         return {"error": str(e), "trace": traceback.format_exc()}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. JOB RECOMMENDATION ENDPOINTS
