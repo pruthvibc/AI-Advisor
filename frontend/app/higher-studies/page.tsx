@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const BASE_URL = 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // ─── College databases ────────────────────────────────────────────────────────
 const GATE_COLLEGES = [
@@ -139,7 +139,7 @@ export default function HigherStudiesPage() {
       const fd = new FormData();
       fd.append('file', resumeFile);
       fd.append('session_id', 'higher_studies_session');
-      const res  = await fetch(`${BASE_URL}/api/upload-resume`, { method: 'POST', body: fd });
+      const res  = await fetch(`${API_BASE}/api/upload-resume`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
       if (data.status === 'error') throw new Error(data.message || 'Upload failed');
@@ -201,7 +201,7 @@ export default function HigherStudiesPage() {
 
     if (userId) {
       try {
-        const res  = await fetch(`${BASE_URL}/api/hindsight?user_id=${encodeURIComponent(userId)}`);
+        const res  = await fetch(`${API_BASE}/api/hindsight?user_id=${encodeURIComponent(userId)}`);
         const data = await res.json();
         const mems: string[] = data.memories || [];
         verifiedSkills = mems.filter(m => m.includes('VERIFIED_MASTERY')).map(m => m.replace('VERIFIED_MASTERY: ', ''));

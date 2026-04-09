@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+
 const PLATFORM_CONFIG: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
   YouTube:  { color: 'text-red-600',    bg: 'bg-red-50 border-red-100',       icon: <Youtube className="w-3.5 h-3.5" /> },
   Udemy:    { color: 'text-orange-600', bg: 'bg-orange-50 border-orange-100', icon: <GraduationCap className="w-3.5 h-3.5" /> },
@@ -52,7 +55,7 @@ export default function CareerCommandCenter() {
 
   useEffect(() => {
     if (!userId) return;
-    fetch(`http://localhost:8000/api/hindsight?user_id=${encodeURIComponent(userId)}`)
+    fetch(`${API_BASE}/api/hindsight?user_id=${encodeURIComponent(userId)}`)
       .then(res => res.json())
       .then(data => setMemories(data.memories || []))
       .catch(err => console.error("Failed to load memories", err));
@@ -60,7 +63,7 @@ export default function CareerCommandCenter() {
 
   useEffect(() => {
     if (!userId) return;
-    fetch(`http://localhost:8000/api/user/${encodeURIComponent(userId)}`)
+    fetch(`${API_BASE}/api/user/${encodeURIComponent(userId)}`)
       .then(res => res.json())
       .then(data => {
         if (data.exists && data.user) {
@@ -92,10 +95,10 @@ export default function CareerCommandCenter() {
     formData.append('jd', jdFile);
     formData.append('user_id', userId);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze-gap', { method: 'POST', body: formData });
+      const response = await fetch(`${API_BASE}/api/analyze-gap`, { method: 'POST', body: formData });
       const data = await response.json();
       setAnalysisResult(data);
-      const memRes  = await fetch(`http://localhost:8000/api/hindsight?user_id=${encodeURIComponent(userId)}`);
+      const memRes  = await fetch(`${API_BASE}/api/hindsight?user_id=${encodeURIComponent(userId)}`);
       const memData = await memRes.json();
       setMemories(memData.memories || []);
     } catch (error) {
@@ -109,7 +112,7 @@ export default function CareerCommandCenter() {
     if (!userId) return;
     setIsGeneratingRoadmap(true);
     try {
-      const res  = await fetch(`http://localhost:8000/api/generate-roadmap?user_id=${encodeURIComponent(userId)}`);
+      const res  = await fetch(`${API_BASE}/api/generate-roadmap?user_id=${encodeURIComponent(userId)}`);
       const data = await res.json();
       setRoadmap(data.roadmap || []);
       setShowRoadmap(true);
