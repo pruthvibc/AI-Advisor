@@ -6,7 +6,8 @@ import {
   Database, Layout, Server, Loader2, BrainCircuit,
   CheckCircle2, Mic, TrendingUp, LayoutDashboard,
   FileText, Briefcase, LogOut, Zap, UserCircle,
-  GraduationCap, ArrowUpRight, BarChart3
+  GraduationCap, ArrowUpRight, BarChart3,
+  User
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -173,7 +174,7 @@ export default function SkillGapAnalysis() {
           <SidebarItem href="/job-recommendations" icon={<Briefcase className="w-4 h-4" />}      label="Job Recommendations" />
 
           <p className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.25em] px-4 mb-3 mt-8">Tools</p>
-          <SidebarItem href="/self-intro"     icon={<UserCircle className="w-4 h-4" />}    label="Self Introduction" />
+           <SidebarItem href="/self_intro" icon={<User />} label="Self Introduction" />
           <SidebarItem href="/higher-studies" icon={<GraduationCap className="w-4 h-4" />} label="Higher Studies" />
         </nav>
 
