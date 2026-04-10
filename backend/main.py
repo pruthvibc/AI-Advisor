@@ -620,7 +620,160 @@ async def generate_resume_pdf(request: Request):
 
         story = []
         story.append(Paragraph(safe(data.get('candidate_name'), 'Resume'), S['name']))
-        story.append(HRFlowable(width='100%', thickness=2, color=INDIGO, spaceAfter=12))
+        story.append(Spacer(1, 20))
+        story.append(HRFlowable(width='100%', thickness=2, color=INDIGO, spaceBefore=0, spaceAfter=12))
+        if data.get('summary'):
+            story += sec('Professional Summary')
+            story.append(Paragraph(safe(data['summary']), S['italic']))
+
+        if data.get('skills'):
+            story += sec('Skills')
+            skills_txt = '  |  '.join(safe(s) for s in data['skills'])
+            story.append(Paragraph(skills_txt, S['body']))
+
+        if data.get('experience'):
+            story += sec('Work Experience')
+            for exp in data['experience']:
+                story.append(Paragraph(safe(exp.get('title')), S['job_title']))
+                story.append(Paragraph(
+                    f"{safe(exp.get('company'))}  |  {safe(exp.get('duration'))}",
+                    S['company']
+                ))
+                for b in (exp.get('bullets') or []):
+                    story.append(bul(b))
+
+        if data.get('certifications'):
+            story += sec('AI-Verified Certifications', AMBER)
+            for cert in data['certifications']:
+                cert_name = safe(cert.get('name'))
+                issuer    = safe(cert.get('issuer'))
+                year      = safe(cert.get('year'))
+                tbl = Table(
+                    [[
+                        Paragraph('VERIFIED', S['badge']),
+                        Paragraph(cert_name,  S['cert_name']),
+                        Paragraph(f'{issuer}  |  {year}', S['cert_sub']),
+                    ]],
+                    colWidths=[0.8*inch, 4.2*inch, 2.25*inch]
+                )
+                tbl.setStyle(TableStyle([
+                    ('BACKGROUND',    (0, 0), (0, 0),   BG_BADGE),
+                    ('BACKGROUND',    (1, 0), (2, 0),   BG_CERT),
+                    ('ALIGN',         (0, 0), (0, 0),   'CENTER'),
+                    ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                    ('TOPPADDING',    (0, 0), (-1, -1), 7),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+                    ('LEFTPADDING',   (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING',  (0, 0), (-1, -1), 8),
+                    ('BOX',           (0, 0), (-1, -1), 0.5, colors.HexColor('#FDE68A')),
+                    ('LINEAFTER',     (0, 0), (0, 0),   0.5, colors.HexColor('#FDE68A')),
+                    ('ROUNDEDCORNERS', [4]),
+                ]))
+                story.append(tbl)
+                story.append(Spacer(1, 6))
+
+        if data.get('education'):
+            story += sec('Education')
+            for edu in data['education']:
+                degree = safe(edu.get('degree'))
+                inst   = safe(edu.get('institution'))
+                yr     = safe(edu.get('year'))
+                story.append(Paragraph(f'<b>{degree}</b>  |  {inst}  |  {yr}', S['body']))
+
+        if data.get('projects'):
+            story += sec('Projects')
+            for proj in data['projects']:
+                tech_parts = [safe(t) for t in (proj.get('tech') or [])]
+                tech_str   = f'  [{", ".join(tech_parts)}]' if tech_parts else ''
+                story.append(Paragraph(f'<b>{safe(proj.get("name"))}</b>{tech_str}', S['job_title']))
+                if proj.get('description'):
+                    story.append(Paragraph(safe(proj['description']), S['body']))
+
+        buf = io.BytesIO()
+        pdf_doc = SimpleDocTemplate(
+            buf, pagesize=letter,
+            leftMargin=0.75*inch, rightMargin=0.75*inch,
+            topMargin=0.75*inch,  bottomMargin=0.75*inch,
+        )
+        pdf_doc.build(story)
+        buf.seek(0)
+
+        filename = safe(data.get('candidate_name'), 'Resume').replace(' ', '_')
+        return StreamingResponse(
+            buf,
+            media_type='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename="{filename}_Evolved_Resume.pdf"'}
+        )
+
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. PDF GENERATION ENDPOINT (unchanged)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/api/generate-resume-docx")
+async def generate_resume_pdf(request: Request):
+    import io
+    from fastapi.responses import StreamingResponse
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+
+    try:
+        body = await request.json()
+        data = body.get("resume_data", {})
+
+        INDIGO   = colors.HexColor('#4F46E5')
+        AMBER    = colors.HexColor('#D97706')
+        DARK     = colors.HexColor('#1E1B4B')
+        GRAY     = colors.HexColor('#374151')
+        LGRAY    = colors.HexColor('#6B7280')
+        WHITE    = colors.white
+        BG_CERT  = colors.HexColor('#FFFBEB')
+        BG_BADGE = colors.HexColor('#D97706')
+        BROWN    = colors.HexColor('#92400E')
+        RULE_CLR = colors.HexColor('#E0E7FF')
+
+        S = {
+            'name':      ParagraphStyle('re_name',      fontName='Helvetica-Bold',    fontSize=26,  textColor=DARK,  alignment=TA_CENTER, spaceAfter=0),
+            'body':      ParagraphStyle('re_body',      fontName='Helvetica',         fontSize=10,  textColor=GRAY,  spaceAfter=4,  leading=14),
+            'italic':    ParagraphStyle('re_italic',    fontName='Helvetica-Oblique', fontSize=10,  textColor=GRAY,  spaceAfter=6,  leading=15),
+            'bullet':    ParagraphStyle('re_bullet',    fontName='Helvetica',         fontSize=10,  textColor=GRAY,  spaceAfter=2,  leading=14, leftIndent=16),
+            'job_title': ParagraphStyle('re_job_title', fontName='Helvetica-Bold',    fontSize=11,  textColor=DARK,  spaceAfter=1,  spaceBefore=10),
+            'company':   ParagraphStyle('re_company',   fontName='Helvetica',         fontSize=9.5, textColor=LGRAY, spaceAfter=4),
+            'cert_name': ParagraphStyle('re_cert_name', fontName='Helvetica-Bold',    fontSize=10,  textColor=BROWN, spaceAfter=1),
+            'cert_sub':  ParagraphStyle('re_cert_sub',  fontName='Helvetica-Oblique', fontSize=8.5, textColor=AMBER, spaceAfter=0),
+            'badge':     ParagraphStyle('re_badge',     fontName='Helvetica-Bold',    fontSize=8,   textColor=WHITE, alignment=TA_CENTER),
+        }
+
+        def sec(title, color=None):
+            c = color or INDIGO
+            return [
+                Spacer(1, 12),
+                Paragraph(title.upper(), ParagraphStyle(
+                    f're_sec_{title[:6]}', fontName='Helvetica-Bold', fontSize=9.5,
+                    textColor=c, spaceBefore=4, spaceAfter=40,
+                )),
+                HRFlowable(width='100%', thickness=0.75, color=RULE_CLR, spaceAfter=6),
+            ]
+
+        def bul(text):
+            safe_text = str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            return Paragraph(f'&#8226;  {safe_text}', S['bullet'])
+
+        def safe(val, fallback=''):
+            return str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;') if val else fallback
+
+        story = []
+        story.append(Paragraph(safe(data.get('candidate_name'), 'Resume'), S['name']))
+        story.append(Spacer(1, 20))
+        story.append(HRFlowable(width='100%', thickness=2, color=INDIGO, spaceBefore=0, spaceAfter=12))
 
         if data.get('summary'):
             story += sec('Professional Summary')
@@ -887,6 +1040,188 @@ async def generate_resume_word(request: Request):
     except Exception as e:
         import traceback
         return {"error": str(e), "trace": traceback.format_exc()}
+
+
+
+
+
+# # ─────────────────────────────────────────────────────────────────────────────
+# # 8b. GENERATE RESUME AS WORD (.docx)
+# # ─────────────────────────────────────────────────────────────────────────────
+
+# @app.post("/api/generate-resume-word")
+# async def generate_resume_word(request: Request):
+#     import io
+#     from fastapi.responses import StreamingResponse
+#     from docx import Document
+#     from docx.shared import Pt, RGBColor, Inches
+#     from docx.enum.text import WD_ALIGN_PARAGRAPH
+#     from docx.oxml.ns import qn
+#     from docx.oxml import OxmlElement
+
+#     def safe(val, fallback=''):
+#         return str(val).strip() if val else fallback
+
+#     def add_horizontal_rule(doc, color_hex='4F46E5', thickness=12):
+#         """Add a colored bottom-border line under the last paragraph as a rule."""
+#         p = doc.add_paragraph()
+#         pPr = p._p.get_or_add_pPr()
+#         pBdr = OxmlElement('w:pBdr')
+#         bottom = OxmlElement('w:bottom')
+#         bottom.set(qn('w:val'), 'single')
+#         bottom.set(qn('w:sz'), str(thickness))
+#         bottom.set(qn('w:space'), '1')
+#         bottom.set(qn('w:color'), color_hex)
+#         pBdr.append(bottom)
+#         pPr.append(pBdr)
+#         p.paragraph_format.space_before = Pt(0)
+#         p.paragraph_format.space_after  = Pt(4)
+#         return p
+
+#     def add_section_heading(doc, title):
+#         """Indigo bold uppercase section heading with a thin rule below."""
+#         p = doc.add_paragraph()
+#         p.paragraph_format.space_before = Pt(10)
+#         p.paragraph_format.space_after  = Pt(0)
+#         run = p.add_run(title.upper())
+#         run.bold = True
+#         run.font.size = Pt(9.5)
+#         run.font.color.rgb = RGBColor(0x4F, 0x46, 0xE5)
+#         add_horizontal_rule(doc, color_hex='E0E7FF', thickness=6)
+
+#     try:
+#         body = await request.json()
+#         data = body.get("resume_data", {})
+
+#         doc = Document()
+
+#         # ── Page margins (0.75 inch all sides) ───────────────────────────
+#         for section in doc.sections:
+#             section.top_margin    = Inches(0.75)
+#             section.bottom_margin = Inches(0.75)
+#             section.left_margin   = Inches(0.75)
+#             section.right_margin  = Inches(0.75)
+
+#         # ── Default body font ─────────────────────────────────────────────
+#         style = doc.styles['Normal']
+#         style.font.name = 'Calibri'
+#         style.font.size = Pt(10)
+#         style.font.color.rgb = RGBColor(0x37, 0x41, 0x51)
+
+#         # ── Name ──────────────────────────────────────────────────────────
+#         name_p = doc.add_paragraph()
+#         name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+#         name_p.paragraph_format.space_after = Pt(2)
+#         name_run = name_p.add_run(safe(data.get('candidate_name'), 'Resume'))
+#         name_run.bold = True
+#         name_run.font.size = Pt(26)
+#         name_run.font.color.rgb = RGBColor(0x1E, 0x1B, 0x4B)
+
+#         # Indigo rule below the name
+#         add_horizontal_rule(doc, color_hex='4F46E5', thickness=18)
+
+#         # ── Professional Summary ──────────────────────────────────────────
+#         if data.get('summary'):
+#             add_section_heading(doc, 'Professional Summary')
+#             p = doc.add_paragraph()
+#             p.paragraph_format.space_after = Pt(6)
+#             run = p.add_run(safe(data['summary']))
+#             run.italic = True
+#             run.font.color.rgb = RGBColor(0x37, 0x41, 0x51)
+
+#         # ── Skills ────────────────────────────────────────────────────────
+#         if data.get('skills'):
+#             add_section_heading(doc, 'Skills')
+#             p = doc.add_paragraph()
+#             p.paragraph_format.space_after = Pt(4)
+#             p.add_run('  |  '.join(safe(s) for s in data['skills']))
+
+#         # ── Work Experience ───────────────────────────────────────────────
+#         if data.get('experience'):
+#             add_section_heading(doc, 'Work Experience')
+#             for exp in data['experience']:
+#                 # Job title
+#                 title_p = doc.add_paragraph()
+#                 title_p.paragraph_format.space_before = Pt(6)
+#                 title_p.paragraph_format.space_after  = Pt(1)
+#                 t_run = title_p.add_run(safe(exp.get('title')))
+#                 t_run.bold = True
+#                 t_run.font.size = Pt(11)
+#                 t_run.font.color.rgb = RGBColor(0x1E, 0x1B, 0x4B)
+#                 # Company | Duration
+#                 co_p = doc.add_paragraph()
+#                 co_p.paragraph_format.space_after = Pt(3)
+#                 co_run = co_p.add_run(f"{safe(exp.get('company'))}  |  {safe(exp.get('duration'))}")
+#                 co_run.font.size = Pt(9.5)
+#                 co_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+#                 # Bullets
+#                 for b in (exp.get('bullets') or []):
+#                     bp = doc.add_paragraph(style='List Bullet')
+#                     bp.paragraph_format.space_after = Pt(2)
+#                     bp.paragraph_format.left_indent = Inches(0.2)
+#                     bp.add_run(safe(b))
+
+#         # ── AI-Verified Certifications ────────────────────────────────────
+#         if data.get('certifications'):
+#             add_section_heading(doc, 'AI-Verified Certifications')
+#             for cert in data['certifications']:
+#                 p = doc.add_paragraph()
+#                 p.paragraph_format.space_after = Pt(3)
+#                 verified_run = p.add_run('✔ VERIFIED  ')
+#                 verified_run.bold = True
+#                 verified_run.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
+#                 name_run2 = p.add_run(safe(cert.get('name')))
+#                 name_run2.bold = True
+#                 name_run2.font.color.rgb = RGBColor(0x92, 0x40, 0x0E)
+#                 sub_run = p.add_run(f"  |  {safe(cert.get('issuer'))}  |  {safe(cert.get('year'))}")
+#                 sub_run.font.size = Pt(8.5)
+#                 sub_run.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
+#                 sub_run.italic = True
+
+#         # ── Education ─────────────────────────────────────────────────────
+#         if data.get('education'):
+#             add_section_heading(doc, 'Education')
+#             for edu in data['education']:
+#                 p = doc.add_paragraph()
+#                 p.paragraph_format.space_after = Pt(3)
+#                 deg_run = p.add_run(safe(edu.get('degree')))
+#                 deg_run.bold = True
+#                 p.add_run(f"  |  {safe(edu.get('institution'))}  |  {safe(edu.get('year'))}")
+
+#         # ── Projects ──────────────────────────────────────────────────────
+#         if data.get('projects'):
+#             add_section_heading(doc, 'Projects')
+#             for proj in data['projects']:
+#                 tech_parts = [safe(t) for t in (proj.get('tech') or [])]
+#                 tech_str   = f'  [{", ".join(tech_parts)}]' if tech_parts else ''
+#                 p = doc.add_paragraph()
+#                 p.paragraph_format.space_before = Pt(6)
+#                 p.paragraph_format.space_after  = Pt(2)
+#                 proj_run = p.add_run(safe(proj.get('name')))
+#                 proj_run.bold = True
+#                 proj_run.font.color.rgb = RGBColor(0x1E, 0x1B, 0x4B)
+#                 if tech_str:
+#                     p.add_run(tech_str)
+#                 if proj.get('description'):
+#                     desc_p = doc.add_paragraph()
+#                     desc_p.paragraph_format.space_after = Pt(2)
+#                     desc_p.add_run(safe(proj['description']))
+
+#         # ── Stream the .docx ──────────────────────────────────────────────
+#         buf = io.BytesIO()
+#         doc.save(buf)
+#         buf.seek(0)
+
+#         filename = safe(data.get('candidate_name'), 'Resume').replace(' ', '_')
+#         return StreamingResponse(
+#             buf,
+#             media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+#             headers={'Content-Disposition': f'attachment; filename="{filename}_Evolved_Resume.docx"'}
+#         )
+
+#     except Exception as e:
+#         import traceback
+#         return {"error": str(e), "trace": traceback.format_exc()}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. JOB RECOMMENDATION ENDPOINTS
@@ -1201,23 +1536,36 @@ def health_check():
 # SELF-INTRODUCTION COACH
 # ─────────────────────────────────────────────────────────────────────────────
 
+from pydantic import BaseModel
+from typing import Optional
+ 
 class SelfIntroRequest(BaseModel):
     intro_text: str
     user_id: Optional[str] = None
-    target_role: Optional[str] = None
-
-
+    target_role: Optional[str] = None   # pulled from job recommendations if available
+ 
+ 
 @app.post("/api/analyze-intro")
 async def analyze_self_intro(request: SelfIntroRequest):
+    """
+    Analyzes a candidate's self-introduction and returns:
+    - Effectiveness score (0-100)
+    - Sub-scores: clarity, relevance, impact, professionalism
+    - Mistake list with labels and categories
+    - AI-improved version of the intro
+    - Personalized tips based on resume data (if user_id provided)
+    - What-to-include checklist status
+    """
     try:
         intro_text = request.intro_text.strip()
         if not intro_text or len(intro_text) < 20:
             return {"error": "Please provide a meaningful self-introduction (at least a few sentences)."}
-
+ 
+        # ── Pull user resume context for personalization ──────────────────────
         resume_context = ""
         candidate_name = "Candidate"
         target_role = request.target_role or "Software Engineering / Tech"
-
+ 
         if request.user_id:
             user = load_user(request.user_id)
             if user:
@@ -1233,69 +1581,130 @@ CANDIDATE PROFILE (from uploaded resume):
 - Verified Skills: {', '.join(verified_skills) if verified_skills else 'None yet'}
 - Known Gaps: {', '.join(gaps[:5]) if gaps else 'None identified'}
 """
-
+ 
         prompt = f"""
-You are an elite placement coach at a top engineering college in India. Your job is to give BRUTAL, HONEST, and HIGHLY SPECIFIC feedback on a student's self-introduction for tech internship/job interviews.
-
+You are an elite placement coach at a top engineering college in India. Analyze this student's self-introduction for tech internship/job interviews.
+ 
 {resume_context}
 TARGET ROLE: {target_role}
-
+ 
 SELF-INTRODUCTION TO ANALYZE:
 \"\"\"{intro_text}\"\"\"
-
-ANALYZE DEEPLY and return ONLY a valid JSON object with this EXACT structure (no markdown, no explanation):
-
+ 
+Return ONLY a valid JSON object with this EXACT structure (no markdown, no explanation):
+ 
 {{
-  "effectiveness_score": <integer 0-100>,
+  "effectiveness_score": <integer 0-100 — compute using SCORING RULES below>,
   "sub_scores": {{
-    "clarity": <integer 1-10>,
-    "relevance": <integer 1-10>,
-    "impact": <integer 1-10>,
-    "professionalism": <integer 1-10>
+    "clarity":         <integer 1-10>,
+    "relevance":       <integer 1-10>,
+    "impact":          <integer 1-10>,
+    "professionalism": <integer 1-10 — give 9-10 if greeting AND closing present, 7-8 if one is present, 5-6 if neither>
   }},
-  "estimated_duration_seconds": <integer, estimated spoken time>,
+  "estimated_duration_seconds": <integer, estimated spoken time at normal pace>,
   "mistakes": [
     {{
-      "text": "<exact phrase from their intro that is problematic>",
-      "issue": "<short issue label like 'Grammar Error', 'Irrelevant Info', 'Generic Claim', 'Poor Ending', 'No Evidence', 'Filler Words', 'Family History', 'Robotic Tone', 'Exaggeration'>",
+      "text":     "<shortest exact phrase from intro that is the problem, or 'Missing' if absent>",
+      "issue":    "<one of: 'Missing Greeting' | 'Missing Thank You' | 'Generic Claim' | 'No Evidence' | 'Weak Closing' | 'Filler Words' | 'Grammar Error' | 'Irrelevant Info' | 'Robotic Tone' | 'Exaggeration' | 'Lack of Specificity'>",
       "severity": "<'high' | 'medium' | 'low'>",
-      "fix": "<one-line actionable fix>"
+      "fix":      "<one actionable fix>"
     }}
   ],
-  "key_issue": "<2 sentences: the single most important thing holding this intro back>",
+  "key_issue": "<2 sentences: the single most impactful thing to improve>",
   "what_included": {{
-    "name_and_academic": <true/false>,
-    "core_technical_skills": <true/false>,
-    "impactful_projects": <true/false>,
-    "experience_highlights": <true/false>,
-    "key_strengths_with_proof": <true/false>,
-    "career_goal": <true/false>
+    "proper_greeting":          <true if starts with Good morning/Hi/Hello/Good afternoon — false otherwise>,
+    "name_and_academic":        <true if name + college + year/semester/CGPA present — false otherwise>,
+    "core_technical_skills":    <true if 3+ specific tech skills named — false otherwise>,
+    "impactful_projects":       <true if at least one project described — false otherwise>,
+    "experience_highlights":    <true if any internship/hackathon/work experience OR quantified project metrics mentioned — false otherwise>,
+    "key_strengths_with_proof": <true if a strength is backed by a specific example or number — false otherwise>,
+    "career_goal":              <true if a clear career direction or target role stated — false otherwise>,
+    "proper_closing":           <true if ends with Thank you / I look forward to / That's all about me — false otherwise>
   }},
-  "improved_intro": "<A completely rewritten, placement-ready self-introduction. MUST include: full name + semester + college, 1-2 specific projects with metrics (invent plausible metrics if none given), technical skills relevant to {target_role}, a clear career goal statement aligned to the role. Keep it 45-60 seconds when spoken. Make it sound natural and confident, NOT robotic.>",
+  "improved_intro": "<Rewritten version. MUST: (1) open with 'Good morning sir/ma'am, thank you for this opportunity', (2) keep the candidate's real name, college, skills and projects from the original, (3) add 1-2 specific metrics if missing, (4) end with 'Thank you for your time. I look forward to contributing to your team.' Target 45-55 seconds spoken. Sound natural, not robotic.>",
   "improvement_highlights": [
-    "<specific improvement made, starting with action verb like 'Added', 'Removed', 'Replaced', 'Quantified'>",
-    "<another improvement>",
-    "<another improvement>"
+    "<change1 starting with action verb>",
+    "<change2>",
+    "<change3>"
   ],
-  "improved_skills_shown": ["<skill1>", "<skill2>", "<skill3>", "<skill4>", "<skill5>", "<skill6>"],
+  "improved_skills_shown": ["<skill1>","<skill2>","<skill3>","<skill4>","<skill5>","<skill6>"],
   "personalized_tips": [
-    "<tip specifically tailored to THIS candidate's profile and gaps>",
-    "<another personalized tip>",
-    "<another personalized tip>"
+    "<specific actionable tip for this candidate>",
+    "<another tip>",
+    "<another tip>"
   ],
-  "readiness_verdict": "<'Not Ready', 'Needs Work', 'Almost There', or 'Interview Ready'>",
-  "readiness_color": "<'red', 'orange', 'yellow', or 'green'>"
+  "readiness_verdict": "<'Not Ready' | 'Needs Work' | 'Almost There' | 'Interview Ready'>",
+  "readiness_color":   "<'red' | 'orange' | 'yellow' | 'green'>"
 }}
-
-CRITICAL RULES:
-- mistakes array must have 2-6 items minimum. Find real issues. Don't be kind.
-- improved_intro must be dramatically better — specific names, numbers, metrics.
-- personalized_tips must reference their ACTUAL gaps/skills if resume context is provided.
-- If the intro starts with "Myself" flag it as Grammar Error severity: high.
-- If the intro mentions parents/family, flag it as Irrelevant Info severity: high.
-- effectiveness_score: 0-40 = bad, 41-65 = average, 66-80 = good, 81-100 = excellent.
+ 
+═══════════════════════════════════════════════
+SCORING RULES — compute effectiveness_score exactly like this:
+═══════════════════════════════════════════════
+Step 1 — CHECKLIST POINTS (what_included):
+  proper_greeting          = true  → +15 pts  (very important in Indian interviews)
+  name_and_academic        = true  → +10 pts
+  core_technical_skills    = true  → +10 pts
+  impactful_projects       = true  → +10 pts
+  experience_highlights    = true  → +8  pts
+  key_strengths_with_proof = true  → +8  pts
+  career_goal              = true  → +8  pts
+  proper_closing           = true  → +15 pts  (very important in Indian interviews)
+  ──────────────────────────────────────────
+  Max checklist total = 84 pts
+ 
+Step 2 — MISTAKE DEDUCTIONS:
+  Each 'high'   severity mistake: -12 pts
+  Each 'medium' severity mistake: -4  pts
+  Each 'low'    severity mistake: -1  pts
+ 
+Step 3 — BONUS:
+  If average of 4 sub_scores >= 8.0: +8 pts
+  If average of 4 sub_scores >= 6.5: +4 pts
+ 
+Step 4 — Clamp final score to range [15, 100].
+ 
+Step 5 — Map to verdict:
+  0–45  = Not Ready      (red)
+  46–65 = Needs Work     (orange)
+  66–79 = Almost There   (yellow)
+  80–100= Interview Ready(green)
+ 
+═══════════════════════════════════════════════
+MISTAKE SEVERITY GUIDE:
+═══════════════════════════════════════════════
+HIGH severity (each costs -12):
+  - No greeting at all (Missing Greeting)
+  - No closing/thank-you at all (Missing Thank You)
+  - Starts with "Myself" (Grammar Error)
+  - Mentions parents/family (Irrelevant Info)
+ 
+MEDIUM severity (each costs -4):
+  - Claims a strength with zero proof (Generic Claim)
+  - Project mentioned but zero metrics or impact (No Evidence)
+  - Career goal is vague ("I want to grow") (Weak Closing)
+  - Filler sentences that add no value (Filler Words)
+ 
+LOW severity (each costs -1):
+  - Minor grammar issues
+  - Slightly robotic phrasing
+  - Minor lack of specificity
+ 
+IMPORTANT — DO NOT flag these as mistakes:
+  - Mentioning college name, CGPA, or year of study → this is REQUIRED in Indian interviews, never flag as Irrelevant Info
+  - Having a career goal statement → never flag as Poor Ending
+  - Describing projects in detail → never flag as Too Long unless > 90 seconds
+ 
+CALIBRATION EXAMPLES:
+  - Intro with greeting + all 8 checklist items + only medium mistakes → score 75-85
+  - Intro with greeting + closing + good projects + metrics → score 82-90
+  - Intro missing greeting AND closing, generic claims → score 45-58
+  - Perfect intro: greeting + 3 projects with metrics + closing → score 88-95
+  - AI-rewritten improved intro should score 85-92
+ 
+mistakes array: find 2-5 real issues only. Do not fabricate problems to fill the array.
+improved_intro: keep the candidate's real name, college, and actual projects — only improve phrasing and add missing elements.
 """
-
+ 
         completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a strict placement coach. Return only valid JSON. No markdown fences."},
@@ -1305,15 +1714,22 @@ CRITICAL RULES:
             response_format={"type": "json_object"},
             temperature=0.3,
         )
-
+ 
         result = json.loads(completion.choices[0].message.content)
-
+ 
+        # ── Ensure sub_scores always exists with defaults ──────────────────
         if "sub_scores" not in result or not isinstance(result.get("sub_scores"), dict):
             result["sub_scores"] = {"clarity": 5, "relevance": 5, "impact": 5, "professionalism": 5}
         else:
             for key in ["clarity", "relevance", "impact", "professionalism"]:
                 result["sub_scores"].setdefault(key, 5)
-
+ 
+        # ── Ensure new what_included keys always exist ─────────────────────
+        if "what_included" in result and isinstance(result["what_included"], dict):
+            result["what_included"].setdefault("proper_greeting", False)
+            result["what_included"].setdefault("proper_closing", False)
+ 
+        # ── Persist intro score to user record ────────────────────────────────
         if request.user_id:
             try:
                 user = load_user(request.user_id)
@@ -1323,43 +1739,47 @@ CRITICAL RULES:
                     save_user(request.user_id, user)
             except Exception as e:
                 print(f"Intro score save error (non-fatal): {e}")
-
+ 
         return result
-
+ 
     except json.JSONDecodeError as e:
         return {"error": f"AI response parse error: {str(e)}"}
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
-
-
+ 
+ 
 @app.post("/api/regenerate-intro")
 async def regenerate_intro(request: SelfIntroRequest):
+    """
+    Given feedback context, regenerates an improved intro with different phrasing.
+    Useful for the 'Try Again' flow on the frontend.
+    """
     try:
         resume_context = ""
         candidate_name = "Candidate"
         target_role = request.target_role or "Software Engineering"
-
+ 
         if request.user_id:
             user = load_user(request.user_id)
             if user:
                 candidate_name = user.get("name", "Candidate")
                 resume_context = f"Resume snippet: {user.get('resume_summary', '')[:400]}"
                 target_role = target_role or "Software Engineering"
-
+ 
         prompt = f"""
 You are a placement coach. Rewrite this self-introduction to be placement-ready for a {target_role} role.
 {resume_context}
-
+ 
 ORIGINAL:
 \"\"\"{request.intro_text}\"\"\"
-
+ 
 Rules:
 - 45-60 seconds when spoken (~120-150 words)
-- Start with "Hi, I'm [name]"
+- MUST start with a polite greeting: "Good morning sir/ma'am, thank you for this opportunity" or "Hello, I'm [name]"
 - Include: name, college, semester, 1-2 projects with metrics, 2-3 tech skills, career goal
 - Natural, confident tone — not robotic
-- End with why you're excited about THIS type of role
-
+- MUST end with a polite closing: "Thank you for your time" or "I look forward to being part of your team"
+ 
 Return ONLY JSON: {{"improved_intro": "...", "word_count": <int>}}
 """
         comp = groq_client.chat.completions.create(

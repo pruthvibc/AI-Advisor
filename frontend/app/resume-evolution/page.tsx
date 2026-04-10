@@ -10,8 +10,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ExperienceEntry {
   title: string;
@@ -51,6 +49,7 @@ export default function ResumeEvolution() {
   const [resumeData, setResumeData]         = useState<ResumeData | null>(null);
   const [verifiedSkills, setVerifiedSkills] = useState<string[]>([]);
   const [isGeneratingDocx, setIsGeneratingDocx] = useState(false);
+  const [isGeneratingWord, setIsGeneratingWord] = useState(false);
   const [error, setError]                   = useState<string | null>(null);
   const [expandedExp, setExpandedExp]       = useState<number | null>(0);
   const [memories, setMemories]             = useState<string[]>([]);
@@ -73,7 +72,7 @@ export default function ResumeEvolution() {
   // CHANGED: pass user_id to /api/hindsight to get only THIS user's verified skills
   useEffect(() => {
     if (!userId) return;
-    fetch(`${API_BASE}/api/hindsight?user_id=${encodeURIComponent(userId)}`)
+    fetch(`http://localhost:8000/api/hindsight?user_id=${encodeURIComponent(userId)}`)
       .then(r => r.json())
       .then(d => setMemories(d.memories || []))
       .catch(() => {});
@@ -99,7 +98,7 @@ export default function ResumeEvolution() {
     formData.append('user_id', userId);       // ← NEW
 
     try {
-      const res = await fetch(`${API_BASE}/api/evolve-resume`, {
+      const res = await fetch('http://localhost:8000/api/evolve-resume', {
         method: 'POST',
         body:   formData,
       });
@@ -123,7 +122,7 @@ export default function ResumeEvolution() {
     setIsGeneratingDocx(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/generate-resume-docx`, {
+      const res = await fetch('http://localhost:8000/api/generate-resume-docx', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ resume_data: resumeData }),
@@ -142,6 +141,33 @@ export default function ResumeEvolution() {
       setError('Failed to generate document. Please try again.');
     } finally {
       setIsGeneratingDocx(false);
+    }
+  };
+  
+  const handleDownloadWord = async () => {
+    if (!resumeData) return;
+    setIsGeneratingWord(true);
+
+    try {
+      const res = await fetch('http://localhost:8000/api/generate-resume-word', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ resume_data: resumeData }),
+      });
+
+      if (!res.ok) throw new Error('Word generation failed');
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `${resumeData.candidate_name.replace(/\s+/g, '_')}_Evolved_Resume.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError('Failed to generate Word document. Please try again.');
+    } finally {
+      setIsGeneratingWord(false);
     }
   };
 
@@ -280,16 +306,28 @@ export default function ResumeEvolution() {
                       ))}
                     </div>
                   </div>
-                  <button
-                    onClick={handleDownloadDocx}
-                    disabled={isGeneratingDocx}
-                    className="flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 active:scale-95 disabled:opacity-60"
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleDownloadDocx}
+                      disabled={isGeneratingDocx || isGeneratingWord}
+                      className="flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 active:scale-95 disabled:opacity-60"
+                    >
+                      {isGeneratingDocx
+                        ? <><Loader2 className="animate-spin w-5 h-5" /> Generating...</>
+                        : <><Download className="w-5 h-5" /> Download PDF</>
+                      }
+                    </button>
+                    <button
+                    onClick={handleDownloadWord}
+                    disabled={isGeneratingDocx || isGeneratingWord}
+                    className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 active:scale-95 disabled:opacity-60 text-sm"
                   >
-                    {isGeneratingDocx
-                      ? <><Loader2 className="animate-spin w-5 h-5" /> Generating...</>
-                      : <><Download className="w-5 h-5" /> Download PDF</>
+                    {isGeneratingWord
+                      ? <><Loader2 className="animate-spin w-4 h-4" /> Generating...</>
+                      : <><Download className="w-4 h-4" /> Download Word</>
                     }
-                  </button>
+                    </button>
+                  </div>
                 </div>
 
                 {/* SUMMARY */}
@@ -438,6 +476,16 @@ export default function ResumeEvolution() {
                       : <><Download className="w-5 h-5" /> Download Evolved Resume (.pdf)</>
                     }
                   </button>
+                  <button
+                  onClick={handleDownloadWord}
+                  disabled={isGeneratingDocx || isGeneratingWord}
+                  className="flex items-center gap-3 bg-emerald-600 text-white px-10 py-5 rounded-2xl font-black text-sm hover:bg-emerald-700 transition-all shadow-2xl shadow-emerald-200 active:scale-95 disabled:opacity-60 uppercase tracking-widest"
+                >
+                  {isGeneratingWord
+                    ? <><Loader2 className="animate-spin w-5 h-5" /> Generating Word...</>
+                    : <><Download className="w-5 h-5" /> Download Word (.docx)</>
+                  }
+                </button>
                 </div>
               </motion.div>
             )}
