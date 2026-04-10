@@ -201,7 +201,7 @@ export default function SelfIntroCoach() {
     setIsAnalyzing(true);
     setResult(null);
     try {
-      const res = await fetch('${API_BASE}/api/analyze-intro', {
+      const res = await fetch(`${API_BASE}/api/analyze-intro`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -227,7 +227,7 @@ export default function SelfIntroCoach() {
     if (!result) return;
     setIsRegenerating(true);
     try {
-      const res = await fetch('${API_BASE}/api/regenerate-intro', {
+      const res = await fetch(`${API_BASE}/api/regenerate-intro`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

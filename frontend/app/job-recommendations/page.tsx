@@ -61,7 +61,7 @@ export default function CareerCommandCenter() {
     formData.append('session_id', sessionId);   // ← pass session_id
 
     try {
-      const res  = await fetch('${API_BASE}/api/upload-resume', {
+      const res  = await fetch(`${API_BASE}/api/upload-resume`, {
         method: 'POST',
         body: formData,
       });
@@ -114,7 +114,7 @@ export default function CareerCommandCenter() {
     setAnalysis('loading');
 
     try {
-      const res  = await fetch('${API_BASE}/api/match-job', {
+      const res  = await fetch(`${API_BASE}/api/match-job`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

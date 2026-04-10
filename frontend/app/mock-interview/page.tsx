@@ -159,7 +159,7 @@ export default function MockInterviewStudio() {
         content: m.text,
       }));
 
-      const response = await fetch('${API_BASE}/api/chat', {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -371,7 +371,7 @@ export default function MockInterviewStudio() {
     qNumRef.current = 1;
     setQNum(1);
     try {
-      const response = await fetch('${API_BASE}/api/chat', {
+      const response = await fetch(`${API_BASE}/api/chat`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

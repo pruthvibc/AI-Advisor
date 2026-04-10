@@ -99,7 +99,7 @@ export default function ResumeEvolution() {
     formData.append('user_id', userId);       // ← NEW
 
     try {
-      const res = await fetch('${API_BASE}/api/evolve-resume', {
+      const res = await fetch(`${API_BASE}/api/evolve-resume`, {
         method: 'POST',
         body:   formData,
       });
@@ -123,7 +123,7 @@ export default function ResumeEvolution() {
     setIsGeneratingDocx(true);
 
     try {
-      const res = await fetch('${API_BASE}/api/generate-resume-docx', {
+      const res = await fetch(`${API_BASE}/api/generate-resume-docx`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ resume_data: resumeData }),
