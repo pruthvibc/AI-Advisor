@@ -6,7 +6,7 @@ import {
   Send, BrainCircuit, Square, Mic, MicOff,
   Video, VideoOff, Trophy, XCircle, Loader2, Play, LogOut,
   LayoutDashboard, FileText, Target, Briefcase, Zap,
-  UserCircle, GraduationCap
+  User, UserCircle, GraduationCap
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -439,7 +439,7 @@ export default function MockInterviewStudio() {
           <SidebarItem href="/job-recommendations" icon={<Briefcase className="w-4 h-4" />}      label="Job Recommendations" />
 
           <p className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.25em] px-4 mb-3 mt-8">Tools</p>
-          <SidebarItem href="/self_intro" icon={<UserCircle />} label="Self Introduction" />
+          <SidebarItem href="/self_intro" icon={<User />} label="Self Introduction" />
           <SidebarItem href="/higher-studies" icon={<GraduationCap className="w-4 h-4" />} label="Higher Studies" />
         </nav>
 
